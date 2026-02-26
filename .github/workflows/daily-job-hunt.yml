@@ -2,12 +2,12 @@ name: Daily Job Hunt
 
 on:
   schedule:
-    - cron: '0 8 * * 1-5'   # 8:00 AM UTC, Mon-Fri only
-  workflow_dispatch:          # Allows manual trigger from GitHub UI
+    - cron: '0 8 * * 1-5'   # 8:00 AM UTC, Mon-Fri
+  workflow_dispatch:        # Allows manual trigger
 
 jobs:
   run-agent:
-    # Using 22.04 specifically to avoid the libasound2t64 naming conflict in 24.04
+    # FIX: Use 22.04 to avoid the libasound2t64 error found in 24.04
     runs-on: ubuntu-22.04 
     timeout-minutes: 30
 
@@ -15,38 +15,28 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Install uv (astral-sh official action)
+      # 1. Install uv
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
           cache-dependency-glob: "requirements.txt"
 
-      # 2. Set up Python 3.12 using uv
+      # 2. Set up Python
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      # 3. Install Dependencies & Playwright Browsers
+      # 3. Install Requirements & Playwright
       - name: Install Dependencies
         run: |
-
+          # This installs your libraries (Groq, etc.)
           uv pip install --system -r requirements.txt
-
-          # 1. Update and install the new version of the library
-          sudo apt-get update
-          sudo apt-get install -y libasound2t64
-          # 2. Create a "symlink" (a shortcut) so Playwright finds what it expects
-          # This tricks the installer into thinking libasound2 is present
-          sudo ln -s /usr/lib/x86_64-linux-gnu/libasound.so.2 /usr/lib/x86_64-linux-gnu/libasound2
-
-          # 3. Upgrade Playwright to the absolute latest version
-          uv pip install --system --upgrade playwright
-
-          # 4. Install browsers and dependencies
-          # --with-deps ensures OS-level libraries for Chromium are installed
+          
+          # This installs Playwright and the necessary system browser deps
+          uv pip install --system playwright
           uv run playwright install chromium --with-deps
 
-      # 4. Persistence: Restore Database from Cache
+      # 4. Persistence (Database)
       - name: Restore Database from Cache
         uses: actions/cache@v4
         with:
@@ -54,11 +44,10 @@ jobs:
           key: jobs-db-${{ github.run_number }}
           restore-keys: jobs-db-
 
-      # 5. Prepare Workspace
       - name: Create Data Directory
         run: mkdir -p data logs/screenshots
 
-      # 6. Build Files from GitHub Secrets
+      # 5. Build Secrets
       - name: Write Resume from Secret
         run: echo "$RESUME_TEXT" > data/resume.txt
         env:
@@ -69,7 +58,7 @@ jobs:
         env:
           USER_INFO_JSON: ${{ secrets.USER_INFO_JSON }}
 
-      # 7. Execute the Agent
+      # 6. Run the Agent
       - name: Run Job Agent
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -78,14 +67,13 @@ jobs:
           ADZUNA_COUNTRY: ${{ secrets.ADZUNA_COUNTRY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # These can be set in Settings > Variables > Actions
           MATCH_THRESHOLD: ${{ vars.MATCH_THRESHOLD || '0.42' }}
           MAX_JOBS_PER_RUN: ${{ vars.MAX_JOBS_PER_RUN || '15' }}
           AUTO_APPLY: ${{ vars.AUTO_APPLY || 'false' }}
           JOB_KEYWORDS: ${{ vars.JOB_KEYWORDS || 'ai engineer,ml engineer,llm engineer' }}
         run: uv run main.py
 
-      # 8. Save Database state for next run
+      # 7. Save Database for next run
       - name: Save Database
         uses: actions/cache/save@v4
         if: always()
@@ -93,7 +81,7 @@ jobs:
           path: data/jobs.db
           key: jobs-db-${{ github.run_number }}
 
-      # 9. Store artifacts (helpful for debugging failures)
+      # 8. Upload Artifacts
       - name: Upload Screenshots as Artifact
         if: always()
         uses: actions/upload-artifact@v4
