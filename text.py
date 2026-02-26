@@ -1,13 +1,27 @@
-from groq import Groq
-from dotenv import load_dotenv
+import asyncio
+from playwright.async_api import async_playwright
 
-load_dotenv()
 
-client = Groq()
+async def test():
+    async with async_playwright() as p:
+        # Opens a real visible Chrome window
+        browser = await p.chromium.launch(headless=False, slow_mo=800)
+        page = await browser.new_page()
 
-response = client.chat.completions.create(
-    model="llama-3.1-8b-instant",
-    messages=[{"role": "user", "content": "Say hello in one sentence."}],
-)
+        # Watch it navigate
+        print("Opening RemoteOK...")
+        await page.goto("https://remoteok.com/remote-ai-jobs")
+        await page.wait_for_timeout(2000)
 
-print(response.choices[0].message.content)
+        # Watch it click the first job
+        print("Clicking first job...")
+        first_job = page.locator(".job").first
+        await first_job.click()
+        await page.wait_for_timeout(2000)
+
+        print("Done! Closing in 3 seconds...")
+        await page.wait_for_timeout(3000)
+        await browser.close()
+
+
+asyncio.run(test())
