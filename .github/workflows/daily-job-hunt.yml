@@ -3,40 +3,32 @@ name: Daily Job Hunt
 on:
   schedule:
     - cron: '0 8 * * 1-5'   # 8:00 AM UTC, Mon-Fri
-  workflow_dispatch:        # Allows manual trigger
+  workflow_dispatch:          # Allows manual trigger
 
 jobs:
   run-agent:
-    # FIX: Use 22.04 to avoid the libasound2t64 error found in 24.04
-    runs-on: ubuntu-22.04 
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Install uv
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
           cache-dependency-glob: "requirements.txt"
 
-      # 2. Set up Python
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      # 3. Install Requirements & Playwright
       - name: Install Dependencies
         run: |
-          # This installs your libraries (Groq, etc.)
           uv pip install --system -r requirements.txt
-          
-          # This installs Playwright and the necessary system browser deps
           uv pip install --system playwright
-          uv run playwright install chromium --with-deps
+          playwright install chromium --with-deps
 
-      # 4. Persistence (Database)
       - name: Restore Database from Cache
         uses: actions/cache@v4
         with:
@@ -47,7 +39,6 @@ jobs:
       - name: Create Data Directory
         run: mkdir -p data logs/screenshots
 
-      # 5. Build Secrets
       - name: Write Resume from Secret
         run: echo "$RESUME_TEXT" > data/resume.txt
         env:
@@ -58,7 +49,6 @@ jobs:
         env:
           USER_INFO_JSON: ${{ secrets.USER_INFO_JSON }}
 
-      # 6. Run the Agent
       - name: Run Job Agent
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -71,9 +61,8 @@ jobs:
           MAX_JOBS_PER_RUN: ${{ vars.MAX_JOBS_PER_RUN || '15' }}
           AUTO_APPLY: ${{ vars.AUTO_APPLY || 'false' }}
           JOB_KEYWORDS: ${{ vars.JOB_KEYWORDS || 'ai engineer,ml engineer,llm engineer' }}
-        run: uv run main.py
+        run: python main.py
 
-      # 7. Save Database for next run
       - name: Save Database
         uses: actions/cache/save@v4
         if: always()
@@ -81,7 +70,6 @@ jobs:
           path: data/jobs.db
           key: jobs-db-${{ github.run_number }}
 
-      # 8. Upload Artifacts
       - name: Upload Screenshots as Artifact
         if: always()
         uses: actions/upload-artifact@v4
