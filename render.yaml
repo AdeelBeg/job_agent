@@ -1,10 +1,10 @@
-# Free deployment on Render.com
 services:
+  # Bot Listener — runs 24/7, handles Telegram button clicks
   - type: worker
-    name: job-agent
+    name: job-agent-bot-listener
     runtime: python
-    buildCommand: pip install -r requirements.txt && playwright install chromium
-    startCommand: python main.py --schedule
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot_listener.py
     envVars:
       - key: GROQ_API_KEY
         sync: false
@@ -17,6 +17,6 @@ services:
       - key: ADZUNA_APP_KEY
         sync: false
       - key: AUTO_APPLY
-        value: false
+        value: "false"
       - key: MATCH_THRESHOLD
         value: "0.42"
