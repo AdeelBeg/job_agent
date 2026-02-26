@@ -1,0 +1,12 @@
+.env
+data/resume.txt
+data/user_info.json
+data/resume.pdf
+data/jobs.db
+logs/
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+venv/
+.job_agent_env/

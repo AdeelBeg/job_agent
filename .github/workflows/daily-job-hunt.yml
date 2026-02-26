@@ -1,0 +1,83 @@
+# ============================================================
+# FREE DEPLOYMENT: GitHub Actions Scheduler
+# Runs your job agent every morning at 8 AM UTC automatically.
+# FREE for public repos, 2000 min/month for private repos.
+# ============================================================
+
+name: Daily Job Hunt
+
+on:
+  schedule:
+    - cron: '0 8 * * 1-5'   # 8:00 AM UTC, Mon-Fri only
+  workflow_dispatch:          # Also allows manual trigger from GitHub UI
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install playwright
+          playwright install chromium --with-deps
+
+      - name: Restore Database from Cache
+        uses: actions/cache@v4
+        with:
+          path: data/jobs.db
+          key: jobs-db-${{ github.run_number }}
+          restore-keys: jobs-db-
+
+      - name: Create Data Directory
+        run: mkdir -p data logs/screenshots
+
+      - name: Write Resume from Secret
+        run: echo "$RESUME_TEXT" > data/resume.txt
+        env:
+          RESUME_TEXT: ${{ secrets.RESUME_TEXT }}
+
+      - name: Write User Info from Secret
+        run: echo "$USER_INFO_JSON" > data/user_info.json
+        env:
+          USER_INFO_JSON: ${{ secrets.USER_INFO_JSON }}
+
+      - name: Run Job Agent
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          ADZUNA_COUNTRY: ${{ secrets.ADZUNA_COUNTRY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MATCH_THRESHOLD: ${{ vars.MATCH_THRESHOLD || '0.42' }}
+          MAX_JOBS_PER_RUN: ${{ vars.MAX_JOBS_PER_RUN || '15' }}
+          AUTO_APPLY: ${{ vars.AUTO_APPLY || 'false' }}
+          JOB_KEYWORDS: ${{ vars.JOB_KEYWORDS || 'ai engineer,ml engineer,llm engineer' }}
+        run: python main.py
+
+      - name: Save Database
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data/jobs.db
+          key: jobs-db-${{ github.run_number }}
+
+      - name: Upload Screenshots as Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-screenshots-${{ github.run_number }}
+          path: logs/screenshots/
+          retention-days: 30

@@ -1,0 +1,30 @@
+# ============================================================
+# Deploy Streamlit Dashboard to Hugging Face Spaces (FREE)
+# Triggers on every push to main branch.
+# ============================================================
+
+name: Deploy Dashboard to HF Spaces
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dashboard/**'
+
+jobs:
+  deploy-to-hf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Push to Hugging Face Spaces
+        uses: huggingface/setup-huggingface-cli@v1
+        with:
+          hf-token: ${{ secrets.HF_TOKEN }}
+
+      - name: Deploy
+        run: |
+          huggingface-cli repo create job-agent-dashboard --type space --space-sdk streamlit || true
+          cp dashboard/app.py app.py
+          cp requirements.txt requirements.txt
+          huggingface-cli upload job-agent-dashboard . . --repo-type space
