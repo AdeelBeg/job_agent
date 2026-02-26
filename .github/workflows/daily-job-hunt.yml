@@ -28,7 +28,7 @@ jobs:
           uv pip install --system -r requirements.txt
           uv pip install --system playwright
 
-      - name: Install Playwright System Dependencies
+      - name: Install Playwright Browser
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -49,6 +49,7 @@ jobs:
             libasound2t64 \
             libx11-xcb1
           playwright install chromium
+
 
       - name: Restore Database from Cache
         uses: actions/cache@v4
