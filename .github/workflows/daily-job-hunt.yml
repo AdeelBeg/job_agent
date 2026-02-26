@@ -2,54 +2,24 @@ name: Daily Job Hunt
 
 on:
   schedule:
-    - cron: '0 8 * * 1-5'
-  workflow_dispatch:
+    - cron: '0 8 * * 1-5'   # 8:00 AM UTC, Mon-Fri
+  workflow_dispatch:          # Manual trigger
 
 jobs:
   run-agent:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    # Use official Playwright Docker image — zero browser dependency issues
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.44.0-jammy
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "requirements.txt"
-
-      - name: Set up Python 3.12
-        run: uv python install 3.12
-
       - name: Install Python Dependencies
-        run: |
-          uv pip install --system -r requirements.txt
-          uv pip install --system playwright
-
-      - name: Install Playwright Browser
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libnss3 \
-            libnspr4 \
-            libatk1.0-0 \
-            libatk-bridge2.0-0 \
-            libcups2 \
-            libdrm2 \
-            libxkbcommon0 \
-            libxcomposite1 \
-            libxdamage1 \
-            libxfixes3 \
-            libxrandr2 \
-            libgbm1 \
-            libpango-1.0-0 \
-            libcairo2 \
-            libasound2t64 \
-            libx11-xcb1
-          playwright install chromium
-
+        run: pip install --no-cache-dir -r requirements.txt
 
       - name: Restore Database from Cache
         uses: actions/cache@v4
