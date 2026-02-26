@@ -29,8 +29,20 @@ jobs:
       # 3. Install Dependencies & Playwright Browsers
       - name: Install Dependencies
         run: |
+
           uv pip install --system -r requirements.txt
-          uv pip install --system playwright
+
+          # 1. Update and install the new version of the library
+          sudo apt-get update
+          sudo apt-get install -y libasound2t64
+          # 2. Create a "symlink" (a shortcut) so Playwright finds what it expects
+          # This tricks the installer into thinking libasound2 is present
+          sudo ln -s /usr/lib/x86_64-linux-gnu/libasound.so.2 /usr/lib/x86_64-linux-gnu/libasound2
+
+          # 3. Upgrade Playwright to the absolute latest version
+          uv pip install --system --upgrade playwright
+
+          # 4. Install browsers and dependencies
           # --with-deps ensures OS-level libraries for Chromium are installed
           uv run playwright install chromium --with-deps
 
