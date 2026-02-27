@@ -20,7 +20,9 @@ class JobScorer:
 
     def score_job(self, job: dict) -> float:
         """Return cosine similarity between resume and job description."""
-        jd_text = f"{job['title']} {job.get('description', '')} {job.get('company', '')}"
+        jd_text = (
+            f"{job['title']} {job.get('description', '')} {job.get('company', '')}"
+        )
         jd_embedding = self.model.encode([jd_text])
         score = cosine_similarity(self.resume_embedding, jd_embedding)[0][0]
         return round(float(score), 4)

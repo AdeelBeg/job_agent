@@ -26,7 +26,7 @@ load_dotenv()
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger(__name__)
 
@@ -51,20 +51,42 @@ def load_user_info() -> dict:
 
 
 def get_job_by_id(job_id: str) -> dict | None:
-    """Fetch job from SQLite by ID."""
+    db_url = os.getenv("DATABASE_URL")
+    print(
+        f">>> Looking up job [{job_id}] using DB: {db_url[:30] if db_url else 'NO URL FOUND'}"
+    )
+
+    if not db_url:
+        log.error("DATABASE_URL is not set — bot_listener cannot connect to Supabase")
+        return None
+
     try:
-        from agents.database import get_all_jobs
-        jobs = get_all_jobs()
-        return next((j for j in jobs if j["id"] == job_id), None)
+        import psycopg2
+
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM jobs WHERE TRIM(id) = TRIM(%s)", (job_id.strip(),))
+        row = cur.fetchone()
+        if row:
+            columns = [desc[0] for desc in cur.description]
+            conn.close()
+            result = dict(zip(columns, row))
+            print(f">>> Found job: {result['title']} @ {result['company']}")
+            return result
+        conn.close()
+        print(f">>> No job found for ID: [{job_id}]")
+        return None
     except Exception as e:
-        log.error(f"DB error fetching job {job_id}: {e}")
+        log.error(f"DB connection failed: {e}")
         return None
 
 
 def send_message(chat_id: str, text: str, reply_markup=None):
     """Safe message sender with error handling."""
     try:
-        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=reply_markup)
+        bot.send_message(
+            chat_id, text, parse_mode="Markdown", reply_markup=reply_markup
+        )
     except Exception as e:
         log.error(f"Failed to send message: {e}")
 
@@ -90,7 +112,10 @@ def handle_button_click(call):
         job = get_job_by_id(job_id)
         if not job:
             bot.answer_callback_query(call.id, "⚠️ Job not found in database")
-            send_message(chat_id, f"⚠️ Could not find job `{job_id}` in database.\nIt may have been deleted.")
+            send_message(
+                chat_id,
+                f"⚠️ Could not find job `{job_id}` in database.\nIt may have been deleted.",
+            )
             return
 
         title = job.get("title", "Unknown Role")
@@ -119,41 +144,27 @@ def handle_button_click(call):
 
 
 def handle_apply(call, job: dict, chat_id, title: str, company: str):
-    """Handle Apply button — triggers Playwright form filler."""
     from agents.applier import AutoApplier
     from agents.database import update_status
 
     bot.answer_callback_query(call.id, "🚀 Starting application...")
-
-    # Edit the original message to show processing state
-    try:
-        bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=call.message.message_id,
-            reply_markup=None  # Remove buttons while processing
-        )
-    except:
-        pass
-
-    send_message(chat_id, f"⏳ *Applying to {title} @ {company}...*\nFilling form with Playwright, please wait.")
+    send_message(
+        chat_id,
+        f"⏳ *Applying to {title} @ {company}...*\nFilling and submitting form now.",
+    )
 
     try:
         user_info = load_user_info()
-        if not user_info:
-            send_message(chat_id, "❌ *Error:* `data/user_info.json` not found on the server.")
-            return
-
         cover_letter = job.get("cover_letter", "")
-        if not cover_letter:
-            send_message(chat_id, "⚠️ No cover letter found for this job. Proceeding with blank cover letter.")
 
-        # Run async Playwright applier
         applier = AutoApplier(user_info)
-        result = asyncio.run(applier.apply(job, cover_letter))
 
+        # ✅ Force auto_apply=True here — user already confirmed by clicking the button
+        applier.auto_apply = True
+
+        result = asyncio.run(applier.apply(job, cover_letter))
         status = result.get("status", "error")
         error = result.get("error", "")
-        screenshot = result.get("screenshot", "")
 
         if status == "submitted":
             update_status(job["id"], "submitted")
@@ -162,31 +173,18 @@ def handle_apply(call, job: dict, chat_id, title: str, company: str):
                 f"✅ *Successfully Applied!*\n\n"
                 f"*Role:* {title}\n"
                 f"*Company:* {company}\n"
-                f"*Link:* {job.get('url', 'N/A')}\n\n"
-                f"_Screenshot saved in GitHub Actions artifacts._"
+                f"*Link:* {job.get('url', 'N/A')}",
             )
-            log.info(f"Applied: {title} @ {company}")
 
         elif status == "form_filled":
             update_status(job["id"], "review_needed")
             send_message(
                 chat_id,
-                f"📋 *Form Filled — Submit Manually*\n\n"
+                f"📋 *Form Filled — Submit Button Not Found*\n\n"
                 f"*Role:* {title}\n"
                 f"*Company:* {company}\n\n"
-                f"The form was filled but the submit button could not be found automatically.\n"
-                f"🔗 Please submit manually: {job.get('url', 'N/A')}"
-            )
-            log.warning(f"Form filled but not submitted: {title} @ {company}")
-
-        elif status == "review_needed":
-            update_status(job["id"], "review_needed")
-            send_message(
-                chat_id,
-                f"👀 *Needs Manual Review*\n\n"
-                f"*Role:* {title}\n"
-                f"*Link:* {job.get('url', 'N/A')}\n\n"
-                f"AUTO\\_APPLY is disabled. Form was prepared but not submitted."
+                f"The form was filled but submit button couldn't be clicked automatically.\n"
+                f"👉 Please submit manually: {job.get('url', 'N/A')}",
             )
 
         else:
@@ -194,22 +192,15 @@ def handle_apply(call, job: dict, chat_id, title: str, company: str):
             send_message(
                 chat_id,
                 f"❌ *Application Failed*\n\n"
-                f"*Role:* {title}\n"
-                f"*Error:* {error[:200] if error else 'Unknown error'}\n\n"
-                f"Try applying manually: {job.get('url', 'N/A')}"
+                f"*Error:* {error[:200]}\n"
+                f"👉 Apply manually: {job.get('url', 'N/A')}",
             )
-            log.error(f"Apply failed: {title} @ {company} — {error}")
 
     except Exception as e:
-        update_status(job["id"], "error")
         send_message(
             chat_id,
-            f"❌ *Unexpected Error*\n\n"
-            f"*Role:* {title}\n"
-            f"*Error:* {str(e)[:300]}\n\n"
-            f"Apply manually: {job.get('url', 'N/A')}"
+            f"❌ *Unexpected Error*\n{str(e)[:300]}\n👉 {job.get('url', 'N/A')}",
         )
-        log.error(f"Unexpected error in handle_apply: {traceback.format_exc()}")
 
 
 def handle_skip(call, job: dict, chat_id, title: str, company: str):
@@ -222,9 +213,7 @@ def handle_skip(call, job: dict, chat_id, title: str, company: str):
     # Remove buttons from original message
     try:
         bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=call.message.message_id,
-            reply_markup=None
+            chat_id=chat_id, message_id=call.message.message_id, reply_markup=None
         )
     except:
         pass
@@ -278,7 +267,7 @@ def handle_start(message):
         "/status — Show application stats\n"
         "/pending — List jobs waiting for your approval\n"
         "/applied — List submitted applications\n"
-        "/help — Show this message"
+        "/help — Show this message",
     )
 
 
@@ -286,6 +275,7 @@ def handle_start(message):
 def handle_status(message):
     try:
         from agents.database import get_all_jobs
+
         jobs = get_all_jobs()
 
         total = len(jobs)
@@ -301,7 +291,7 @@ def handle_status(message):
             f"✅ Applied: *{applied}*\n"
             f"⏳ Pending approval: *{pending}*\n"
             f"⏭️ Skipped: *{skipped}*\n"
-            f"❌ Errors: *{errors}*"
+            f"❌ Errors: *{errors}*",
         )
     except Exception as e:
         send_message(message.chat.id, f"❌ Error fetching stats: {e}")
@@ -311,6 +301,7 @@ def handle_status(message):
 def handle_pending(message):
     try:
         from agents.database import get_all_jobs
+
         pending_jobs = [j for j in get_all_jobs() if j["status"] == "notified"]
 
         if not pending_jobs:
@@ -322,15 +313,19 @@ def handle_pending(message):
         for job in pending_jobs[:10]:  # Max 10
             markup = types.InlineKeyboardMarkup()
             markup.row(
-                types.InlineKeyboardButton("✅ Apply", callback_data=f"apply_{job['id']}"),
-                types.InlineKeyboardButton("❌ Skip", callback_data=f"skip_{job['id']}"),
+                types.InlineKeyboardButton(
+                    "✅ Apply", callback_data=f"apply_{job['id']}"
+                ),
+                types.InlineKeyboardButton(
+                    "❌ Skip", callback_data=f"skip_{job['id']}"
+                ),
             )
             send_message(
                 message.chat.id,
                 f"*{job['title']}* @ {job['company']}\n"
                 f"Score: {job.get('match_score', 0)*100:.0f}% | {job.get('source', 'unknown')}\n"
                 f"🔗 {job.get('url', 'N/A')}",
-                reply_markup=markup
+                reply_markup=markup,
             )
     except Exception as e:
         send_message(message.chat.id, f"❌ Error: {e}")
@@ -340,6 +335,7 @@ def handle_pending(message):
 def handle_applied(message):
     try:
         from agents.database import get_all_jobs
+
         applied_jobs = [j for j in get_all_jobs() if j["status"] == "submitted"]
 
         if not applied_jobs:
@@ -369,7 +365,7 @@ if __name__ == "__main__":
             bot.send_message(
                 CHAT_ID,
                 "✅ *Bot Listener Started*\n_Ready to process your job applications._",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
         except:
             pass
